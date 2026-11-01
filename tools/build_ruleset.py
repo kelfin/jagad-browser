@@ -37,7 +37,10 @@ VERSION_NAME = "adblock_ruleset_version.txt"
 def read_list(source: str) -> str:
     """Return the text of a filter list from a URL or a local path."""
     if source.startswith(("http://", "https://")):
-        with urllib.request.urlopen(source, timeout=120) as r:
+        # easylist.to rejects urllib's default User-Agent with HTTP 403.
+        req = urllib.request.Request(
+            source, headers={"User-Agent": "jagad-build-ruleset/1.0"})
+        with urllib.request.urlopen(req, timeout=120) as r:
             raw = r.read()
     else:
         raw = Path(source).read_bytes()
@@ -52,6 +55,7 @@ def normalize(text: str) -> list[str]:
     else is passed through; the converter itself skips rules it can't parse.
     """
     out = []
+    text = text.lstrip("﻿")
     for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
         line = line.strip()
         if not line or line.startswith("!"):

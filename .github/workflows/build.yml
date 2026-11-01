@@ -1,0 +1,58 @@
+name: build
+
+# Full Chromium build. Needs a self-hosted runner labelled `chromium`
+# (Linux x86_64, 32+ cores, 64 GB RAM, 300 GB disk, depot_tools on PATH),
+# so it only runs on demand.
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Publish a GitHub release with the signed APK"
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    runs-on: [self-hosted, linux, chromium]
+    timeout-minutes: 1440
+    env:
+      CHROMIUM_SRC: ${{ github.workspace }}/../chromium/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync Chromium
+        run: scripts/sync.sh
+
+      - name: Apply Jagad patches
+        run: |
+          git -C "$CHROMIUM_SRC" am --abort 2>/dev/null || true
+          scripts/apply_patches.sh
+
+      - name: Build
+        run: scripts/build.sh
+
+      - name: Chromium unit tests touched by Jagad
+        run: |
+          cd "$CHROMIUM_SRC"
+          autoninja -C out/TabS9U unit_tests components_unittests content_junit_tests
+          out/TabS9U/bin/run_content_junit_tests -f 'BindingManagerTest#*'
+          # gtest suites run on an attached device/emulator:
+          out/TabS9U/bin/run_components_unittests \
+            --gtest_filter='SubresourceFilterFeaturesTest.*:AutofillProfilePrefsTest.*'
+          out/TabS9U/bin/run_unit_tests --gtest_filter='ManifestV2Handler*'
+
+      - name: Sign
+        env:
+          KEYSTORE_B64: ${{ secrets.JAGAD_KEYSTORE_B64 }}
+          KS_ALIAS: ${{ secrets.JAGAD_KEY_ALIAS }}
+          KS_PASS: ${{ secrets.JAGAD_KEYSTORE_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/jagad.jks"
+          KEYSTORE="$RUNNER_TEMP/jagad.jks" scripts/sign.sh \
+            "$CHROMIUM_SRC/out/TabS9U/apks/ChromePublic.apk"
+          rm -f "$RUNNER_TEMP/jagad.jks"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jagad-apk
+          path: ${{ env.CHROMIUM_SRC }}/out/TabS9U/apks/ChromePublic-signed.apk

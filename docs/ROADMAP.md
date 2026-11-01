@@ -1,5 +1,8 @@
 # Jagad roadmap: Chromium fork for Android, tuned for the Galaxy Tab S9 Ultra
 
+> **Progress (Nov 2026):** the patches for Phases 0–4 are written and apply cleanly to 156.0.8078.79. They haven't been compiled yet.
+> For what is done, what was already upstream and what is deferred, see [patches/STATUS.md](../patches/STATUS.md).
+
 ## Context
 The goal is a personal Chromium-based Android browser that:
 1. is built and tuned for the Galaxy Tab S9 Ultra (Snapdragon 8 Gen 2 "for Galaxy", Adreno 740, 12–16 GB RAM, 14.6" 2960×1848 120 Hz OLED, S Pen, DeX, Android 14+/One UI);
