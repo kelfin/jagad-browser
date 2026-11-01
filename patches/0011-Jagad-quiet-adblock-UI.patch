@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jagad <jagad@localhost>
+Date: Sun, 1 Nov 2026 14:02:40 +0000
+Subject: [PATCH] Jagad: don't show the Ads blocked message for the built-in
+ blocker
+
+With kJagadAdblock the subresource filter activates on every site, so the
+Android 'Ads blocked' message would appear constantly. Skip it when
+kJagadAdblock is enabled. The page still reports ContentSettingsType::ADS
+as blocked, so Page Info shows it and lets the user allow ads per site
+(the existing per-site ALLOW setting disables filtering).
+---
+ .../content/browser/profile_interaction_manager.cc        | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/components/subresource_filter/content/browser/profile_interaction_manager.cc b/components/subresource_filter/content/browser/profile_interaction_manager.cc
+index 63e1b6c..357a7b5 100644
+--- a/components/subresource_filter/content/browser/profile_interaction_manager.cc
++++ b/components/subresource_filter/content/browser/profile_interaction_manager.cc
+@@ -5,6 +5,7 @@
+ #include "components/subresource_filter/content/browser/profile_interaction_manager.h"
+ 
+ #include "base/check.h"
++#include "base/feature_list.h"
+ #include "base/logging.h"
+ #include "base/trace_event/trace_event.h"
+ #include "build/build_config.h"
+@@ -15,6 +16,7 @@
+ #include "components/subresource_filter/content/browser/subresource_filter_content_settings_manager.h"
+ #include "components/subresource_filter/content/browser/subresource_filter_profile_context.h"
+ #include "components/subresource_filter/content/browser/utils.h"
++#include "components/subresource_filter/core/browser/subresource_filter_features.h"
+ #include "content/public/browser/navigation_controller.h"
+ #include "content/public/browser/navigation_handle.h"
+ #include "content/public/browser/page.h"
+@@ -138,7 +140,11 @@ void ProfileInteractionManager::MaybeShowNotification() {
+   if (profile_context_->settings_manager()->ShouldShowUIForSite(
+           top_level_url)) {
+ #if BUILDFLAG(IS_ANDROID)
+-    if (messages::MessageDispatcherBridge::Get()
++    // Jagad: the built-in blocker runs on every site, so an "Ads blocked"
++    // message on each page would be noise. The blocked state is still shown
++    // in Page Info, where the site can be allowed.
++    if (!base::FeatureList::IsEnabled(kJagadAdblock) &&
++        messages::MessageDispatcherBridge::Get()
+             ->IsMessagesEnabledForEmbedder()) {
+       subresource_filter::AdsBlockedMessageDelegate::CreateForWebContents(
+           GetWebContents());

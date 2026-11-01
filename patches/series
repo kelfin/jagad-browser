@@ -6,3 +6,6 @@
 0006-Jagad-enable-Skia-Graphite-on-Android.patch
 0007-Jagad-keep-background-tabs-alive-on-high-RAM.patch
 0008-Jagad-trim-Google-sign-in-and-Feed.patch
+0009-Jagad-tablet-features-on-by-default.patch
+0010-Jagad-block-third-party-cookies-by-default.patch
+0011-Jagad-quiet-adblock-UI.patch
