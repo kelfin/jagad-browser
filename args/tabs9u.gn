@@ -1,0 +1,16 @@
+# Galaxy Tab S9 Ultra build config (copy to out/TabS9U/args.gn)
+target_os = "android"
+target_cpu = "arm64"
+is_official_build = true
+is_debug = false
+symbol_level = 1
+is_desktop_android = true        # desktop extensions system on Android
+proprietary_codecs = true
+ffmpeg_branding = "Chrome"
+enable_nacl = false
+chrome_pgo_phase = 2
+use_thin_lto = true
+android_channel = "stable"
+google_api_key = ""
+google_default_client_id = ""
+google_default_client_secret = ""
