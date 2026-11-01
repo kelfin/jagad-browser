@@ -1,0 +1,121 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jagad <jagad@localhost>
+Date: Sun, 1 Nov 2026 13:55:58 +0000
+Subject: [PATCH] Jagad: keep background tabs alive on high-RAM devices
+
+BindingManager normally drops all renderer bindings 10 s after the browser
+goes to the background, letting Android kill every background tab. On
+devices with >= 11 GB RAM (12/16 GB Tab S9 Ultra) Jagad keeps them, so tabs
+survive app switches, split screen and DeX. onTrimMemory()/onLowMemory()
+still release bindings under real memory pressure.
+
+Tests: content_junit_tests -f 'BindingManagerTest#*'
+---
+ .../content/browser/BindingManager.java       | 17 +++++++++
+ .../content/browser/BindingManagerTest.java   | 37 +++++++++++++++++++
+ 2 files changed, 54 insertions(+)
+
+diff --git a/content/public/android/java/src/org/chromium/content/browser/BindingManager.java b/content/public/android/java/src/org/chromium/content/browser/BindingManager.java
+index 9ca85fb..3ef944b 100644
+--- a/content/public/android/java/src/org/chromium/content/browser/BindingManager.java
++++ b/content/public/android/java/src/org/chromium/content/browser/BindingManager.java
+@@ -12,6 +12,7 @@ import androidx.collection.ArraySet;
+ 
+ import org.chromium.base.ChildBindingState;
+ import org.chromium.base.Log;
++import org.chromium.base.SysUtils;
+ import org.chromium.base.metrics.RecordHistogram;
+ import org.chromium.base.process_launcher.ChildProcessConnection;
+ import org.chromium.build.annotations.NullMarked;
+@@ -39,6 +40,17 @@ class BindingManager implements ComponentCallbacks2 {
+     // Delays used when clearing moderate binding pool when onSentToBackground happens.
+     private static final long BINDING_POOL_CLEARER_DELAY_MILLIS = 10 * 1000;
+ 
++    // Jagad: on devices with at least this much RAM (12 GB devices report a bit
++    // less than 12 GB), keep background tabs' bindings when the browser goes to
++    // the background, so tabs survive app switches, split screen and DeX.
++    // onTrimMemory()/onLowMemory() still release them under memory pressure.
++    static final long JAGAD_KEEP_BINDINGS_MIN_RAM_KB = 11L * 1024 * 1024;
++
++    /** Jagad: whether bindings are kept when the browser is sent to background. */
++    static boolean shouldKeepBindingsInBackground() {
++        return SysUtils.amountOfPhysicalMemoryKB() >= JAGAD_KEEP_BINDINGS_MIN_RAM_KB;
++    }
++
+     private final Set<ChildProcessConnection> mConnections = new ArraySet<ChildProcessConnection>();
+     // Can be -1 to mean no max size.
+     private final int mMaxSize;
+@@ -170,6 +182,11 @@ class BindingManager implements ComponentCallbacks2 {
+         mConnectionsDroppedDueToMaxSize = 0;
+ 
+         if (mConnections.isEmpty()) return;
++        if (shouldKeepBindingsInBackground()) {
++            Log.i(TAG, "Keeping %d connections in background (high-RAM device)",
++                    mConnections.size());
++            return;
++        }
+         LauncherThread.postDelayed(mDelayedClearer, BINDING_POOL_CLEARER_DELAY_MILLIS);
+     }
+ 
+diff --git a/content/public/android/junit/src/org/chromium/content/browser/BindingManagerTest.java b/content/public/android/junit/src/org/chromium/content/browser/BindingManagerTest.java
+index 194de27..efbfbfc 100644
+--- a/content/public/android/junit/src/org/chromium/content/browser/BindingManagerTest.java
++++ b/content/public/android/junit/src/org/chromium/content/browser/BindingManagerTest.java
+@@ -25,6 +25,7 @@ import org.robolectric.Robolectric;
+ import org.robolectric.annotation.Config;
+ 
+ import org.chromium.base.ChildBindingState;
++import org.chromium.base.SysUtils;
+ import org.chromium.base.process_launcher.ChildProcessConnection;
+ import org.chromium.base.process_launcher.TestChildProcessConnection;
+ import org.chromium.base.test.BaseRobolectricTestRunner;
+@@ -78,6 +79,9 @@ public class BindingManagerTest {
+         // The tests run on only one thread. Pretend that is the launcher thread so LauncherThread
+         // asserts are not triggered.
+         LauncherThread.setCurrentThreadAsLauncherThread();
++        // Upstream tests expect bindings to drop in background; Jagad keeps them
++        // on high-RAM devices, so pretend to be a 4 GB device by default.
++        SysUtils.setAmountOfPhysicalMemoryKbForTesting(4 * 1024 * 1024);
+         mActivity = Robolectric.buildActivity(Activity.class).setup().get();
+         mIterable = new ArrayList<>();
+         mManager =
+@@ -128,6 +132,39 @@ public class BindingManagerTest {
+         doTestBindingDropOnBackground(mVariableManager);
+     }
+ 
++    /** Jagad: on a 12 GB device, bindings survive the browser going to background. */
++    @Test
++    @Feature({"ProcessManagement"})
++    public void testJagadBindingsKeptOnBackgroundOnHighRamDevice() {
++        SysUtils.setAmountOfPhysicalMemoryKbForTesting(12 * 1024 * 1024);
++        assertThat(BindingManager.shouldKeepBindingsInBackground()).isTrue();
++
++        ChildProcessConnection[] connections = new ChildProcessConnection[3];
++        for (int i = 0; i < connections.length; i++) {
++            connections[i] =
++                    createTestChildProcessConnection(/* pid= */ i + 1, mVariableManager, mIterable);
++        }
++        RobolectricUtil.runAllBackgroundAndUiIncludingDelayed();
++        checkConnections(connections, /* isConnected= */ true);
++
++        mVariableManager.onSentToBackground();
++        RobolectricUtil.runAllBackgroundAndUiIncludingDelayed();
++        checkConnections(connections, /* isConnected= */ true);
++
++        // Real memory pressure still releases them.
++        mVariableManager.onLowMemory();
++        RobolectricUtil.runAllBackgroundAndUiIncludingDelayed();
++        checkConnections(connections, /* isConnected= */ false);
++    }
++
++    /** Jagad: the threshold is not reached on an 8 GB device. */
++    @Test
++    @Feature({"ProcessManagement"})
++    public void testJagadBindingsDroppedOnBackgroundOnLowerRamDevice() {
++        SysUtils.setAmountOfPhysicalMemoryKbForTesting(8 * 1024 * 1024);
++        assertThat(BindingManager.shouldKeepBindingsInBackground()).isFalse();
++    }
++
+     private void doTestBindingDropOnBackground(BindingManager manager) {
+         ChildProcessConnection[] connections = new ChildProcessConnection[3];
+         for (int i = 0; i < connections.length; i++) {

@@ -19,6 +19,11 @@ chrome_public_manifest_package = "com.kelfin.jagad"
 # Desktop extension system on Android (build/config/chrome_build.gni)
 is_desktop_android = true
 
+# CPU tuning (patch 0005, //build/config/jagad.gni). Every core in the
+# Snapdragon 8 Gen 2 (X3/A715/A710/A510) supports these.
+jagad_arm64_march = "armv8.2-a+dotprod+fp16"
+jagad_arm64_mtune = "cortex-a715"
+
 # Media
 proprietary_codecs = true
 ffmpeg_branding = "Chrome"

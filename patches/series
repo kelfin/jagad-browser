@@ -1,3 +1,8 @@
 0001-Jagad-branding-product-name.patch
 0002-Jagad-keep-Manifest-V2-extensions.patch
 0003-Jagad-built-in-adblock.patch
+0004-Jagad-default-to-Android-Autofill.patch
+0005-Jagad-arm64-cpu-tuning-args.patch
+0006-Jagad-enable-Skia-Graphite-on-Android.patch
+0007-Jagad-keep-background-tabs-alive-on-high-RAM.patch
+0008-Jagad-trim-Google-sign-in-and-Feed.patch

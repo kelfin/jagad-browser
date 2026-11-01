@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jagad <jagad@localhost>
+Date: Sun, 1 Nov 2026 13:53:29 +0000
+Subject: [PATCH] Jagad: default to Android Autofill (third-party password
+ managers)
+
+Registers autofill.using_virtual_view_structure with default true, so
+Jagad uses the Android Autofill framework from first run: Google Password
+Manager (via Android Autofill), Samsung Pass, Bitwarden, 1Password, etc.
+
+In this mode ChromeAuthenticatorFactory sets WebauthnMode.CHROME_3PP_ENABLED,
+so CredManSupportProvider routes passkeys fully through Android Credential
+Manager (Android 14+), and Chromium's own password save prompts are off.
+
+Tests: components_unittests --gtest_filter='AutofillProfilePrefsTest.*'
+---
+ components/autofill/core/common/autofill_prefs.cc  |  8 +++++++-
+ .../core/common/autofill_prefs_unittest.cc         | 14 ++++++++++++++
+ 2 files changed, 21 insertions(+), 1 deletion(-)
+
+diff --git a/components/autofill/core/common/autofill_prefs.cc b/components/autofill/core/common/autofill_prefs.cc
+index 9902382..c5c2299 100644
+--- a/components/autofill/core/common/autofill_prefs.cc
++++ b/components/autofill/core/common/autofill_prefs.cc
+@@ -141,7 +141,13 @@ void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
+ #endif
+ 
+ #if BUILDFLAG(IS_ANDROID)
+-  registry->RegisterBooleanPref(kAutofillUsingPlatformAutofill, false);
++  // Jagad: default to "Autofill using another service" so the Android
++  // Autofill framework (Google, Samsung Pass, Bitwarden, ...) fills
++  // passwords, addresses and cards, and passkeys go through Android
++  // Credential Manager. A Chromium fork has no Google Password Manager
++  // backend, so the built-in manager is the worse default. Users can still
++  // switch back in Settings > Autofill services.
++  registry->RegisterBooleanPref(kAutofillUsingPlatformAutofill, true);
+   registry->RegisterBooleanPref(kAutofillThirdPartyPasswordManagersAllowed,
+                                 true);
+   registry->RegisterStringPref(
+diff --git a/components/autofill/core/common/autofill_prefs_unittest.cc b/components/autofill/core/common/autofill_prefs_unittest.cc
+index 467a677..9a470c2 100644
+--- a/components/autofill/core/common/autofill_prefs_unittest.cc
++++ b/components/autofill/core/common/autofill_prefs_unittest.cc
+@@ -9,6 +9,7 @@
+ #include "base/test/values_test_util.h"
+ #include "base/time/time.h"
+ #include "base/values.h"
++#include "build/build_config.h"
+ #include "components/sync_preferences/testing_pref_service_syncable.h"
+ #include "testing/gtest/include/gtest/gtest.h"
+ 
+@@ -210,6 +211,19 @@ TEST_F(AutofillProfilePrefsTest, SetHasShownWalletReminderNotice) {
+   EXPECT_TRUE(HasShownWalletReminderNotice(pref_service()));
+ }
+ 
++#if BUILDFLAG(IS_ANDROID)
++// Jagad: platform (Android) autofill is the default.
++TEST_F(AutofillProfilePrefsTest, JagadPlatformAutofillIsDefault) {
++  EXPECT_TRUE(pref_service()->GetBoolean(kAutofillUsingPlatformAutofill));
++  EXPECT_TRUE(
++      pref_service()->FindPreference(kAutofillUsingPlatformAutofill)
++          ->IsDefaultValue());
++  // Third-party password managers remain allowed by default.
++  EXPECT_TRUE(
++      pref_service()->GetBoolean(kAutofillThirdPartyPasswordManagersAllowed));
++}
++#endif  // BUILDFLAG(IS_ANDROID)
++
+ }  // namespace
+ 
+ }  // namespace autofill::prefs

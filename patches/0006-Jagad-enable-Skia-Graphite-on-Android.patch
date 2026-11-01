@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jagad <jagad@localhost>
+Date: Sun, 1 Nov 2026 13:54:47 +0000
+Subject: [PATCH] Jagad: enable Skia Graphite (Dawn/Vulkan) on Android by
+ default
+
+Upstream ships Graphite on Android via field trials, which Jagad does not
+receive. Enable it by default; it is still gated on the device using
+Vulkan, so GL-only devices keep Ganesh/GL.
+
+Verify on device: chrome://gpu shows 'Skia Backend: GraphiteDawnVulkan'.
+Turn off: chrome://flags/#skia-graphite or --disable-skia-graphite.
+---
+ gpu/config/gpu_finch_features.cc | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/gpu/config/gpu_finch_features.cc b/gpu/config/gpu_finch_features.cc
+index 2d19ed0..d5109e9 100644
+--- a/gpu/config/gpu_finch_features.cc
++++ b/gpu/config/gpu_finch_features.cc
+@@ -380,8 +380,12 @@ const base::FeatureParam<std::string> kDrDcBlockListByAndroidBuildFP{
+ // Note: This can be overridden by --enable-skia-graphite and
+ // --disable-skia-graphite which take precedence over the feature flag, and the
+ // Dawn backend can be overridden with the --skia-graphite-dawn-backend flag.
++// Jagad: also on by default on Android. Upstream enables it there through
++// field trials, which a fork never receives. It still only takes effect when
++// the device uses Vulkan (IsSkiaGraphiteSupportedByDevice), and can be turned
++// off at chrome://flags/#skia-graphite or with --disable-skia-graphite.
+ BASE_FEATURE(kSkiaGraphite,
+-#if BUILDFLAG(IS_APPLE)
++#if BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_ANDROID)
+              base::FEATURE_ENABLED_BY_DEFAULT
+ #else
+              base::FEATURE_DISABLED_BY_DEFAULT

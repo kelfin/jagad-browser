@@ -1,0 +1,72 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jagad <jagad@localhost>
+Date: Sun, 1 Nov 2026 13:54:05 +0000
+Subject: [PATCH] Jagad: add arm64 CPU tuning build args
+
+New //build/config/jagad.gni with jagad_arm64_march and jagad_arm64_mtune.
+When set, compiler_codegen adds -march/-mtune for Android arm64 C/C++.
+Defaults are empty (upstream behaviour). The Tab S9 Ultra config uses
+armv8.2-a+dotprod+fp16 (supported by all X3/A715/A710/A510 cores) and
+-mtune=cortex-a715.
+
+Verify: gn args out/TabS9U --list=jagad_arm64_march; check flags with
+gn desc out/TabS9U //base:base cflags
+---
+ build/config/compiler/BUILD.gn | 13 +++++++++++++
+ build/config/jagad.gni         | 16 ++++++++++++++++
+ 2 files changed, 29 insertions(+)
+ create mode 100644 build/config/jagad.gni
+
+diff --git a/build/config/compiler/BUILD.gn b/build/config/compiler/BUILD.gn
+index c106acf..eb6dc9c 100644
+--- a/build/config/compiler/BUILD.gn
++++ b/build/config/compiler/BUILD.gn
+@@ -17,6 +17,7 @@ import("//build/config/cronet/config.gni")
+ import("//build/config/dcheck_always_on.gni")
+ import("//build/config/gclient_args.gni")
+ import("//build/config/host_byteorder.gni")
++import("//build/config/jagad.gni")
+ import("//build/config/pch.gni")
+ import("//build/config/rust.gni")
+ import("//build/config/sanitizers/sanitizers.gni")
+@@ -1373,6 +1374,18 @@ config("compiler_codegen") {
+     }
+   }
+ 
++  # Jagad: device-specific arm64 tuning (see //build/config/jagad.gni). The
++  # flags are recorded as per-function target attributes, so they also apply
++  # to ThinLTO code generation at link time.
++  if (current_cpu == "arm64" && is_android && is_clang) {
++    if (jagad_arm64_march != "") {
++      cflags += [ "-march=$jagad_arm64_march" ]
++    }
++    if (jagad_arm64_mtune != "") {
++      cflags += [ "-mtune=$jagad_arm64_mtune" ]
++    }
++  }
++
+   asmflags = cflags
+ }
+ 
+diff --git a/build/config/jagad.gni b/build/config/jagad.gni
+new file mode 100644
+index 0000000..848f642
+--- /dev/null
++++ b/build/config/jagad.gni
+@@ -0,0 +1,16 @@
++# Copyright 2026 The Jagad Authors
++# Use of this source code is governed by a BSD-style license that can be
++# found in the LICENSE file.
++
++# Build arguments specific to the Jagad browser.
++
++declare_args() {
++  # Extra -march for Android arm64 code, for example
++  # "armv8.2-a+dotprod+fp16". Every core in the target SoC must support it.
++  # Empty keeps Chromium's default (armv8-a).
++  jagad_arm64_march = ""
++
++  # Extra -mtune for Android arm64 code, for example "cortex-a715". Only
++  # affects scheduling, so it is always safe. Empty disables it.
++  jagad_arm64_mtune = ""
++}
