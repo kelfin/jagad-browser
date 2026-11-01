@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Usage: scripts/sync.sh <chromium-stable-tag>   e.g. 142.0.7444.xx
+# Usage: scripts/sync.sh [chromium-tag]   (defaults to ./CHROMIUM_VERSION)
 set -euo pipefail
-TAG="${1:?chromium tag required}"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+TAG="${1:-$(cat "$ROOT/CHROMIUM_VERSION")}"
 SRC="${CHROMIUM_SRC:-$HOME/chromium/src}"
 if [ ! -d "$SRC" ]; then
   mkdir -p "$(dirname "$SRC")" && cd "$(dirname "$SRC")"

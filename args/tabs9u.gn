@@ -1,16 +1,32 @@
-# Galaxy Tab S9 Ultra build config (copy to out/TabS9U/args.gn)
+# Jagad — Galaxy Tab S9 Ultra build config.
+# scripts/build.sh copies this to $CHROMIUM_SRC/out/TabS9U/args.gn.
+# Verified against Chromium 156.0.8078.79.
+
 target_os = "android"
 target_cpu = "arm64"
+
+# Release build
 is_official_build = true
 is_debug = false
 symbol_level = 1
-is_desktop_android = true        # desktop extensions system on Android
+use_thin_lto = true
+chrome_pgo_phase = 2                 # upstream PGO profiles
+
+# Identity (installs alongside Chrome/Chromium)
+android_channel = "stable"
+chrome_public_manifest_package = "com.kelfin.jagad"
+
+# Desktop extension system on Android (build/config/chrome_build.gni)
+is_desktop_android = true
+
+# Media
 proprietary_codecs = true
 ffmpeg_branding = "Chrome"
+
+# Trim
 enable_nacl = false
-chrome_pgo_phase = 2
-use_thin_lto = true
-android_channel = "stable"
+
+# No Google API keys: Google sync / sign-in / GPM are not available in a fork.
 google_api_key = ""
 google_default_client_id = ""
 google_default_client_secret = ""

@@ -1,0 +1,55 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: kelfin <kelfin.eka@gmail.com>
+Date: Sun, 1 Nov 2026 12:58:11 +0000
+Subject: [PATCH] Jagad: rebrand product name to Jagad
+
+Changes the product name in the Chromium BRANDING file and the Android
+app_name / widget titles. The package name is set from args.gn
+(chrome_public_manifest_package), not patched.
+---
+ .../res_chromium_base/values/channel_constants.xml |  8 ++++----
+ chrome/app/theme/chromium/BRANDING                 | 14 +++++++-------
+ 2 files changed, 11 insertions(+), 11 deletions(-)
+
+diff --git a/chrome/android/java/res_chromium_base/values/channel_constants.xml b/chrome/android/java/res_chromium_base/values/channel_constants.xml
+index cc1f2a3..eed07c9 100644
+--- a/chrome/android/java/res_chromium_base/values/channel_constants.xml
++++ b/chrome/android/java/res_chromium_base/values/channel_constants.xml
+@@ -7,8 +7,8 @@ found in the LICENSE file.
+ 
+ <resources xmlns:android="http://schemas.android.com/apk/res/android">
+     <!-- The application name displayed to the user. -->
+-    <string name="app_name" translatable="false">Chromium</string>
+-    <string name="bookmark_widget_title" translatable="false">Chromium bookmarks</string>
+-    <string name="search_widget_title" translatable="false">Chromium search</string>
+-    <string name="quick_action_search_widget_title" translatable="false">Chromium quick action search</string>
++    <string name="app_name" translatable="false">Jagad</string>
++    <string name="bookmark_widget_title" translatable="false">Jagad bookmarks</string>
++    <string name="search_widget_title" translatable="false">Jagad search</string>
++    <string name="quick_action_search_widget_title" translatable="false">Jagad quick action search</string>
+ </resources>
+diff --git a/chrome/app/theme/chromium/BRANDING b/chrome/app/theme/chromium/BRANDING
+index f8363d5..ad8cf63 100644
+--- a/chrome/app/theme/chromium/BRANDING
++++ b/chrome/app/theme/chromium/BRANDING
+@@ -1,10 +1,10 @@
+-COMPANY_FULLNAME=The Chromium Authors
+-COMPANY_SHORTNAME=The Chromium Authors
+-PRODUCT_FULLNAME=Chromium
+-PRODUCT_SHORTNAME=Chromium
+-PRODUCT_INSTALLER_FULLNAME=Chromium Installer
+-PRODUCT_INSTALLER_SHORTNAME=Chromium Installer
++COMPANY_FULLNAME=Jagad Browser
++COMPANY_SHORTNAME=Jagad
++PRODUCT_FULLNAME=Jagad
++PRODUCT_SHORTNAME=Jagad
++PRODUCT_INSTALLER_FULLNAME=Jagad Installer
++PRODUCT_INSTALLER_SHORTNAME=Jagad Installer
+ COPYRIGHT=Copyright @LASTCHANGE_YEAR@ The Chromium Authors. All rights reserved.
+-MAC_BUNDLE_ID=org.chromium.Chromium
++MAC_BUNDLE_ID=com.kelfin.jagad
+ MAC_CREATOR_CODE=Cr24
+ MAC_TEAM_ID=
+-- 
+2.43.0
+

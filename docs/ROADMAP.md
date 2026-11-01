@@ -1,4 +1,4 @@
-# Roadmap: Chromium fork for Android, tuned for the Galaxy Tab S9 Ultra
+# Jagad roadmap: Chromium fork for Android, tuned for the Galaxy Tab S9 Ultra
 
 ## Context
 The goal is a personal Chromium-based Android browser that:
@@ -21,7 +21,7 @@ The working directory is empty, so this is a roadmap from scratch, not a change 
 ## Build environment (prerequisite)
 - Use a Linux x86_64 build host with at least 16 cores (32+ is better), 64 GB RAM and 300 GB+ of NVMe storage. A first build takes hours, and incremental builds take minutes. This cloud container is not suitable, so use your own workstation or a cloud VM.
 - Get the source with `depot_tools`, `fetch --nohooks android`, `gclient sync`, then `build/install-build-deps.sh --android`.
-- **Pin the source to a Stable release tag** (for example the current M14x stable) and rebase every 4 weeks. Keep your changes as a **patch series** in your own repo, as Cromite and Bromite do, not as a long-lived fork branch. Rebasing patches is much easier.
+- **Pin the source to a Stable release tag** (currently 156.0.8078.79, see `CHROMIUM_VERSION`) and rebase every 4 weeks. Keep your changes as a **patch series** in your own repo, as Cromite and Bromite do, not as a long-lived fork branch. Rebasing patches is much easier.
 
 ## Phase 0 — Baseline build (week 1–2)
 - Use these `args.gn` settings:
@@ -42,7 +42,7 @@ The working directory is empty, so this is a roadmap from scratch, not a change 
   google_api_key = "" google_default_client_id = "" google_default_client_secret = ""
   ```
 - Build `chrome_public_bundle` or `chrome_public_apk`. Sign it with your own keystore and install it with `adb install`.
-- Change the package name (for example `com.yourname.browser`) and the branding so it installs alongside Chrome.
+- Change the package name to `com.kelfin.jagad` via `chrome_public_manifest_package`, and the branding so it installs alongside Chrome.
 - **Done when:** the browser launches on the tablet and you can install a CRX or unpacked extension.
 
 ## Phase 1 — Extensions + uBlock (week 2–4)
@@ -87,7 +87,7 @@ These are the features most worth adding, highest value first:
 
 ## Repo layout to create
 ```
-browser-fork/
+jagad-browser/
   patches/            # numbered .patch series applied on top of a Chromium tag
   args/tabs9u.gn      # build config above
   branding/           # icons, strings, package name
