@@ -15,7 +15,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install test tools
-        run: pip install pytest shellcheck-py
+        run: pip install pytest pyyaml shellcheck-py
 
       # Pristine Chromium files touched by the series (~1 MB), per version.
       - name: Cache shadow tree

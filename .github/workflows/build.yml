@@ -1,58 +1,169 @@
 name: build
 
-# Full Chromium build. Needs a self-hosted runner labelled `chromium`
-# (Linux x86_64, 32+ cores, 64 GB RAM, 300 GB disk, depot_tools on PATH),
-# so it only runs on demand.
+# Full Jagad build on a GitHub larger runner (or any self-hosted runner).
+#
+# Needs: Ubuntu x64 runner with >= 32 cores, >= 64 GB RAM, >= 300 GB disk.
+# GitHub larger runners require an organization on GitHub Team/Enterprise;
+# add one (e.g. Ubuntu 64-core) and give it the label used below.
+# GitHub-hosted jobs are capped at 6 hours; if the first build runs out of
+# time, retry with the "fast" profile.
 on:
   workflow_dispatch:
     inputs:
+      runner_label:
+        description: "Runner label (larger runner or self-hosted)"
+        type: string
+        default: jagad-64core
+      profile:
+        description: "official = release build; fast = no LTO/PGO, quicker trial"
+        type: choice
+        options: [official, fast]
+        default: official
+      run_tests:
+        description: "Build and run host-side (Robolectric) Chromium tests"
+        type: boolean
+        default: true
+      compile_gtests:
+        description: "Also compile the gtest suites Jagad patches touch (slow)"
+        type: boolean
+        default: false
       release:
-        description: "Publish a GitHub release with the signed APK"
+        description: "Publish a GitHub release with the APK"
         type: boolean
         default: false
 
+permissions:
+  contents: write
+
 jobs:
   build:
-    runs-on: [self-hosted, linux, chromium]
-    timeout-minutes: 1440
+    runs-on: ${{ inputs.runner_label }}
+    timeout-minutes: 360
     env:
       CHROMIUM_SRC: ${{ github.workspace }}/../chromium/src
+      OUT_DIR: out/TabS9U
+      HAS_KEYSTORE: ${{ secrets.JAGAD_KEYSTORE_B64 != '' }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Sync Chromium
-        run: scripts/sync.sh
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          df -h "$GITHUB_WORKSPACE"
+          nproc; free -g
+
+      - name: Install depot_tools
+        run: |
+          git clone --depth 1 \
+            https://chromium.googlesource.com/chromium/tools/depot_tools.git \
+            "$RUNNER_TEMP/depot_tools"
+          echo "$RUNNER_TEMP/depot_tools" >> "$GITHUB_PATH"
+
+      - name: Sync Chromium (shallow)
+        run: scripts/sync.sh --shallow
+
+      - name: Install build dependencies
+        run: "$CHROMIUM_SRC/build/install-build-deps.sh --android --no-prompt"
 
       - name: Apply Jagad patches
-        run: |
-          git -C "$CHROMIUM_SRC" am --abort 2>/dev/null || true
-          scripts/apply_patches.sh
+        env:
+          GIT_AUTHOR_NAME: Jagad CI
+          GIT_AUTHOR_EMAIL: ci@jagad.invalid
+          GIT_COMMITTER_NAME: Jagad CI
+          GIT_COMMITTER_EMAIL: ci@jagad.invalid
+        run: scripts/apply_patches.sh
 
-      - name: Build
-        run: scripts/build.sh
+      - name: Build APK
+        env:
+          JAGAD_ARGS_EXTRA: >-
+            ${{ inputs.profile == 'fast' &&
+                'is_official_build=false use_thin_lto=false chrome_pgo_phase=0 symbol_level=0'
+                || '' }}
+        run: scripts/build.sh 2>&1 | tee "$RUNNER_TEMP/build.log"
 
-      - name: Chromium unit tests touched by Jagad
+      - name: Check CPU tuning flags (patch 0005)
         run: |
           cd "$CHROMIUM_SRC"
-          autoninja -C out/TabS9U unit_tests components_unittests content_junit_tests
-          out/TabS9U/bin/run_content_junit_tests -f 'BindingManagerTest#*'
-          # gtest suites run on an attached device/emulator:
-          out/TabS9U/bin/run_components_unittests \
-            --gtest_filter='SubresourceFilterFeaturesTest.*:AutofillProfilePrefsTest.*'
-          out/TabS9U/bin/run_unit_tests --gtest_filter='ManifestV2Handler*'
+          gn desc "$OUT_DIR" //base:base cflags | tee "$RUNNER_TEMP/cflags.txt"
+          grep -q -- "-mtune=cortex-a715" "$RUNNER_TEMP/cflags.txt"
 
-      - name: Sign
+      - name: Host-side Chromium tests
+        if: inputs.run_tests
+        run: |
+          cd "$CHROMIUM_SRC"
+          autoninja -C "$OUT_DIR" content_junit_tests
+          "$OUT_DIR/bin/run_content_junit_tests" -f '*BindingManagerTest*' \
+            2>&1 | tee "$RUNNER_TEMP/junit.log"
+
+      - name: Compile gtest suites touched by Jagad
+        if: inputs.compile_gtests
+        run: |
+          cd "$CHROMIUM_SRC"
+          autoninja -C "$OUT_DIR" components_unittests unit_tests
+
+      - name: Sign APK
+        if: env.HAS_KEYSTORE == 'true'
         env:
           KEYSTORE_B64: ${{ secrets.JAGAD_KEYSTORE_B64 }}
           KS_ALIAS: ${{ secrets.JAGAD_KEY_ALIAS }}
           KS_PASS: ${{ secrets.JAGAD_KEYSTORE_PASSWORD }}
         run: |
-          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/jagad.jks"
+          export PATH="$CHROMIUM_SRC/third_party/android_sdk/public/build-tools/$(ls "$CHROMIUM_SRC/third_party/android_sdk/public/build-tools" | sort -V | tail -1):$PATH"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/jagad.jks"
           KEYSTORE="$RUNNER_TEMP/jagad.jks" scripts/sign.sh \
-            "$CHROMIUM_SRC/out/TabS9U/apks/ChromePublic.apk"
+            "$CHROMIUM_SRC/$OUT_DIR/apks/ChromePublic.apk"
           rm -f "$RUNNER_TEMP/jagad.jks"
+
+      - name: Warn about unsigned APK
+        if: env.HAS_KEYSTORE != 'true'
+        run: >
+          echo "::warning::No JAGAD_KEYSTORE_B64 secret; uploading an APK signed
+          with Chromium's debug key. Run scripts/make_keystore.sh and add the
+          secrets for a release key."
+
+      - name: Collect outputs
+        run: |
+          mkdir -p dist
+          APKS="$CHROMIUM_SRC/$OUT_DIR/apks"
+          V="$(cat CHROMIUM_VERSION)"
+          if [ -f "$APKS/ChromePublic-signed.apk" ]; then
+            cp "$APKS/ChromePublic-signed.apk" "dist/Jagad-$V.apk"
+          else
+            cp "$APKS/ChromePublic.apk" "dist/Jagad-$V-debugkey.apk"
+          fi
+          cp "$CHROMIUM_SRC/$OUT_DIR/args.gn" dist/
+          cp patches/series dist/patch-series.txt
 
       - uses: actions/upload-artifact@v4
         with:
           name: jagad-apk
-          path: ${{ env.CHROMIUM_SRC }}/out/TabS9U/apks/ChromePublic-signed.apk
+          path: dist/
+
+      - name: Publish release
+        if: inputs.release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="$(cat CHROMIUM_VERSION)"
+          gh release create "jagad-$V-${{ github.run_number }}" dist/* \
+            --title "Jagad $V (build ${{ github.run_number }})" \
+            --notes "Chromium $V with patches: $(tr '\n' ' ' < patches/series)"
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jagad-build-logs
+          if-no-files-found: ignore
+          path: |
+            ${{ runner.temp }}/build.log
+            ${{ runner.temp }}/junit.log
+            ${{ runner.temp }}/cflags.txt
+            ${{ env.CHROMIUM_SRC }}/${{ env.OUT_DIR }}/args.gn
+            ${{ env.CHROMIUM_SRC }}/${{ env.OUT_DIR }}/.ninja_log
+            ${{ env.CHROMIUM_SRC }}/${{ env.OUT_DIR }}/siso_output

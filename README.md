@@ -28,19 +28,48 @@ python3 tools/shadow.py start path/to/file.cc  # work tree in .shadow/work, seri
 python3 tools/shadow.py finish Jagad-my-change "Jagad: my change"
 ```
 
-## Build (needs a real build host)
-You need Linux x86_64 with 32+ cores, 64 GB RAM, about 300 GB of free disk, and
-[depot_tools](https://chromium.googlesource.com/chromium/tools/depot_tools) on `PATH`.
+## Build on GitHub (larger runner)
+Chromium needs ~150 GB of disk and 64 GB of RAM, so Jagad is built by the
+`build` workflow on a GitHub **larger runner**.
 
+**One-time setup**
+1. Larger runners are only available to **organizations** on GitHub Team or Enterprise Cloud.
+   Create an organization, choose the Team plan, and transfer this repository to it
+   (Repository → Settings → Transfer).
+2. In the organization, go to Settings → Actions → Runners → **New runner** → *New GitHub-hosted runner*.
+   Pick **Ubuntu, 64-core** (256 GB RAM, ~2 TB SSD) and set its name/label to `jagad-64core`.
+   Give this repository access to it. You pay per minute; a first build takes roughly 2–4 hours.
+3. Create the signing key on your own computer. It needs a JDK.
+   ```bash
+   scripts/make_keystore.sh ~/jagad.jks
+   ```
+   Then add the three secrets it prints under Repository → Settings → Secrets and variables → Actions.
+   **Back up `~/jagad.jks` and its password.** Every update must be signed with the same key.
+
+**Each build**
+- Go to Actions → **build** → *Run workflow*.
+  - `profile=official` gives the release build.
+  - If it hits GitHub's 6-hour limit, run once with `profile=fast`, which skips LTO and PGO.
+- When the run finishes, download the **jagad-apk** artifact, or turn on `release` to publish it as a GitHub Release.
+- Install it:
+  ```bash
+  adb install -r Jagad-156.0.8078.79.apk
+  ```
+  You can also open the APK on the tablet.
+- If the build fails, download **jagad-build-logs** and share `build.log`, and the patches will be fixed.
+
+The same workflow runs on a self-hosted machine instead (any Linux x86_64 with 32+ cores, 64 GB RAM and 300 GB disk).
+Register it as a runner and enter its label in `runner_label`.
+
+## Build locally
 ```bash
 export CHROMIUM_SRC=$HOME/chromium/src
-scripts/sync.sh            # checks out CHROMIUM_VERSION
+scripts/sync.sh --shallow  # checks out CHROMIUM_VERSION without git history
+"$CHROMIUM_SRC/build/install-build-deps.sh" --android
 scripts/apply_patches.sh
 scripts/build.sh           # also generates the adblock ruleset
 KEYSTORE=~/jagad.jks KS_ALIAS=jagad scripts/sign.sh $CHROMIUM_SRC/out/TabS9U/apks/ChromePublic.apk
-adb install -r $CHROMIUM_SRC/out/TabS9U/apks/ChromePublic-signed.apk
 ```
-Or run the `build` workflow on a self-hosted runner labelled `chromium`.
 
 ## Installing uBlock Origin
 - **uBlock Origin Lite (MV3):** install from the Chrome Web Store.
