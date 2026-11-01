@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Applies patches/*.patch (numbered, in order) onto the Chromium checkout.
+# Applies the patches listed in patches/series, in order, onto the Chromium checkout.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="${CHROMIUM_SRC:-$HOME/chromium/src}"
 cd "$SRC"
-shopt -s nullglob
-for p in "$ROOT"/patches/*.patch; do
-  echo ">> $(basename "$p")"
-  git am --3way "$p"
-done
+while IFS= read -r line || [ -n "$line" ]; do
+  p="${line%%#*}"
+  p="$(echo "$p" | xargs)"
+  [ -z "$p" ] && continue
+  echo ">> $p"
+  git am --3way "$ROOT/patches/$p"
+done < "$ROOT/patches/series"

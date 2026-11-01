@@ -1,0 +1,213 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jagad <jagad@localhost>
+Date: Sun, 1 Nov 2026 13:48:05 +0000
+Subject: [PATCH] Jagad: keep Manifest V2 extensions working
+
+Adds extensions_features::kJagadKeepManifestV2 (enabled by default). When
+enabled, ManifestV2Handler never blocks, disables or flags MV2 extensions,
+and unpacked MV2 extensions no longer get the deprecation install warning.
+This lets full uBlock Origin (MV2) run alongside uBO Lite.
+
+Tests: unit_tests --gtest_filter='ManifestV2Handler*'
+---
+ .../manifest_v2_handler_unittest.cc           | 56 ++++++++++++++++++-
+ extensions/browser/manifest_v2_handler.cc     | 14 +++++
+ extensions/common/extension.cc                |  6 +-
+ extensions/common/extension_features.cc       |  2 +
+ extensions/common/extension_features.h        |  4 ++
+ 5 files changed, 80 insertions(+), 2 deletions(-)
+
+diff --git a/chrome/browser/extensions/manifest_v2_handler_unittest.cc b/chrome/browser/extensions/manifest_v2_handler_unittest.cc
+index e2db5d1..086e321 100644
+--- a/chrome/browser/extensions/manifest_v2_handler_unittest.cc
++++ b/chrome/browser/extensions/manifest_v2_handler_unittest.cc
+@@ -6,6 +6,7 @@
+ 
+ #include "base/memory/raw_ptr.h"
+ #include "base/test/metrics/histogram_tester.h"
++#include "base/test/scoped_feature_list.h"
+ #include "build/chromeos_buildflags.h"
+ #include "chrome/browser/extensions/extension_service_user_test_base.h"
+ #include "chrome/browser/profiles/profile.h"
+@@ -15,6 +16,7 @@
+ #include "extensions/browser/extension_registrar.h"
+ #include "extensions/browser/pref_names.h"
+ #include "extensions/common/extension_builder.h"
++#include "extensions/common/extension_features.h"
+ #include "extensions/common/mojom/manifest.mojom.h"
+ 
+ #if BUILDFLAG(IS_CHROMEOS)
+@@ -26,7 +28,12 @@ namespace extensions {
+ 
+ class ManifestV2HandlerUnitTest : public ExtensionServiceUserTestBase {
+  public:
+-  ManifestV2HandlerUnitTest() = default;
++  ManifestV2HandlerUnitTest() {
++    // These tests cover upstream's MV2 deprecation, so turn off Jagad's
++    // keep-MV2 override. ManifestV2HandlerJagadUnitTest covers Jagad.
++    jagad_feature_list_.InitAndDisableFeature(
++        extensions_features::kJagadKeepManifestV2);
++  }
+   ~ManifestV2HandlerUnitTest() override = default;
+ 
+   void SetUp() override {
+@@ -60,9 +67,56 @@ class ManifestV2HandlerUnitTest : public ExtensionServiceUserTestBase {
+   ManifestV2Handler* handler() { return handler_.get(); }
+ 
+  private:
++  base::test::ScopedFeatureList jagad_feature_list_;
+   raw_ptr<ManifestV2Handler> handler_;
+ };
+ 
++// Jagad: with kJagadKeepManifestV2 enabled (the default), MV2 extensions are
++// never blocked, disabled or flagged as affected.
++class ManifestV2HandlerJagadUnitTest : public ManifestV2HandlerUnitTest {
++ public:
++  ManifestV2HandlerJagadUnitTest() {
++    feature_list_.InitAndEnableFeature(
++        extensions_features::kJagadKeepManifestV2);
++  }
++
++ private:
++  base::test::ScopedFeatureList feature_list_;
++};
++
++TEST_F(ManifestV2HandlerJagadUnitTest, MV2ExtensionsAreAllowed) {
++  const mojom::ManifestLocation kLocations[] = {
++      mojom::ManifestLocation::kInternal,
++      mojom::ManifestLocation::kUnpacked,
++      mojom::ManifestLocation::kCommandLine,
++      mojom::ManifestLocation::kExternalPref,
++      mojom::ManifestLocation::kExternalPolicy,
++  };
++  for (auto location : kLocations) {
++    SCOPED_TRACE(static_cast<int>(location));
++    scoped_refptr<const Extension> mv2_extension =
++        ExtensionBuilder("mv2")
++            .SetManifestVersion(2)
++            .SetLocation(location)
++            .Build();
++    EXPECT_FALSE(handler()->IsExtensionAffected(*mv2_extension));
++    EXPECT_FALSE(handler()->ShouldBlockExtensionEnable(*mv2_extension));
++    EXPECT_FALSE(handler()->ShouldBlockExtensionInstallation(
++        /*manifest_version=*/2, Manifest::Type::kExtension, location));
++  }
++}
++
++TEST_F(ManifestV2HandlerJagadUnitTest, MV2ExtensionIsNotDisabledOnStartup) {
++  scoped_refptr<const Extension> mv2_extension =
++      ExtensionBuilder("ublock")
++          .SetManifestVersion(2)
++          .SetLocation(mojom::ManifestLocation::kInternal)
++          .Build();
++  registrar()->AddExtension(mv2_extension.get());
++  handler()->DisableAffectedExtensionsForTesting();
++  EXPECT_TRUE(registry()->enabled_extensions().Contains(mv2_extension->id()));
++}
++
+ // Checks that MV2 extensions are considered "affected" by the
+ // MV2ExtensionHandler. This logic is much more heavily tested in
+ // mv2_deprecation_impact_checker_unittest.cc.
+diff --git a/extensions/browser/manifest_v2_handler.cc b/extensions/browser/manifest_v2_handler.cc
+index 5841d3d..7c7042c 100644
+--- a/extensions/browser/manifest_v2_handler.cc
++++ b/extensions/browser/manifest_v2_handler.cc
+@@ -5,6 +5,7 @@
+ #include "extensions/browser/manifest_v2_handler.h"
+ 
+ #include "base/auto_reset.h"
++#include "base/feature_list.h"
+ #include "base/metrics/histogram_functions.h"
+ #include "base/one_shot_event.h"
+ #include "base/strings/stringprintf.h"
+@@ -24,6 +25,7 @@
+ #include "extensions/browser/pref_types.h"
+ #include "extensions/buildflags/buildflags.h"
+ #include "extensions/common/extension.h"
++#include "extensions/common/extension_features.h"
+ 
+ static_assert(BUILDFLAG(ENABLE_EXTENSIONS_CORE));
+ 
+@@ -114,6 +116,12 @@ bool ShouldDisableLegacyExtensions() {
+     return false;
+   }
+ 
++  // Jagad keeps MV2 extensions working.
++  if (base::FeatureList::IsEnabled(
++          extensions_features::kJagadKeepManifestV2)) {
++    return false;
++  }
++
+   return true;
+ }
+ 
+@@ -151,6 +159,12 @@ BrowserContextKeyedServiceFactory* ManifestV2Handler::GetFactory() {
+ }
+ 
+ bool ManifestV2Handler::IsExtensionAffected(const Extension& extension) {
++  // Jagad: MV2 extensions are supported, so nothing is "affected" by the
++  // deprecation and no warning UI is shown.
++  if (base::FeatureList::IsEnabled(
++          extensions_features::kJagadKeepManifestV2)) {
++    return false;
++  }
+   return manifest_v2_util::IsExtensionAffected(extension);
+ }
+ 
+diff --git a/extensions/common/extension.cc b/extensions/common/extension.cc
+index 28a3cac..310cf6c 100644
+--- a/extensions/common/extension.cc
++++ b/extensions/common/extension.cc
+@@ -16,6 +16,7 @@
+ #include "base/base64.h"
+ #include "base/command_line.h"
+ #include "base/containers/map_util.h"
++#include "base/feature_list.h"
+ #include "base/files/file_path.h"
+ #include "base/i18n/rtl.h"
+ #include "base/json/json_writer.h"
+@@ -34,6 +35,7 @@
+ #include "extensions/common/error_utils.h"
+ #include "extensions/common/extension_id.h"
+ #include "extensions/common/file_util.h"
++#include "extensions/common/extension_features.h"
+ #include "extensions/common/manifest.h"
+ #include "extensions/common/manifest_constants.h"
+ #include "extensions/common/manifest_handler.h"
+@@ -100,7 +102,9 @@ bool IsManifestSupported(int manifest_version,
+     // Emit a warning for unpacked extensions on Manifest V2 warning that
+     // MV2 is deprecated.
+     if (type == Manifest::Type::kExtension && manifest_version == 2 &&
+-        Manifest::IsUnpackedLocation(location)) {
++        Manifest::IsUnpackedLocation(location) &&
++        !base::FeatureList::IsEnabled(
++            extensions_features::kJagadKeepManifestV2)) {
+       *warning = errors::kManifestV2IsDeprecatedWarning;
+     }
+     return true;
+diff --git a/extensions/common/extension_features.cc b/extensions/common/extension_features.cc
+index 22d664c..0accdfa 100644
+--- a/extensions/common/extension_features.cc
++++ b/extensions/common/extension_features.cc
+@@ -268,4 +268,6 @@ BASE_FEATURE(kOptimizeWebRequestProxy, base::FEATURE_ENABLED_BY_DEFAULT);
+ 
+ BASE_FEATURE(kUseSha256ForExtensionHashes, base::FEATURE_DISABLED_BY_DEFAULT);
+ 
++BASE_FEATURE(kJagadKeepManifestV2, base::FEATURE_ENABLED_BY_DEFAULT);
++
+ }  // namespace extensions_features
+diff --git a/extensions/common/extension_features.h b/extensions/common/extension_features.h
+index 8687d20..989e734 100644
+--- a/extensions/common/extension_features.h
++++ b/extensions/common/extension_features.h
+@@ -351,6 +351,10 @@ BASE_DECLARE_FEATURE(kWebRequestPerContextEventDispatch);
+ // If enabled, `HashedExtensionId` uses SHA-256 hashes instead of SHA-1.
+ BASE_DECLARE_FEATURE(kUseSha256ForExtensionHashes);
+ 
++// Jagad: keep Manifest V2 extensions (for example uBlock Origin) installable
++// and enabled, and hide the MV2 deprecation warnings. Enabled by default.
++BASE_DECLARE_FEATURE(kJagadKeepManifestV2);
++
+ }  // namespace extensions_features
+ 
+ #endif  // EXTENSIONS_COMMON_EXTENSION_FEATURES_H_
